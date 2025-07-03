@@ -6,18 +6,57 @@ class MyASTVisitor : public RecursiveASTVisitor<MyASTVisitor> {
 		MyASTVisitor(ASTContext &C, Rewriter &R) : TheContext(C), TheRewriter(R) {}
 
 		bool VisitStmt(Stmt *s) {
-
 			return true;
 		}
 
 		bool VisitFunctionDecl(FunctionDecl *f) {
-			// Only function definitions (with bodies), not declarations.
 			if (f->hasBody()) {
-				Stmt *funcBody = f->getBody();
-				//CFG 
-				std::unique_ptr<CFG> sourceCFG = CFG::buildCFG(f, funcBody, &TheContext, CFG::BuildOptions());
-				sourceCFG->print(llvm::errs(), LangOptions(), true);
+				std::string signature = f->getReturnType().getAsString() + " " + f->getNameInfo().getAsString() + "(";
+				for (unsigned i = 0; i < f->getNumParams(); ++i) {
+					if (i > 0) signature += ", ";
+					QualType qt = f->getParamDecl(i)->getType();
+					std::string paramType = qt.getAsString();
+					std::string paramName = f->getParamDecl(i)->getNameAsString();
+					signature += paramType + " " + paramName;
+				}
+				signature += ")";
+				llvm::outs() << "Function signature: " << signature << "\n";
 
+				Stmt *funcBody = f->getBody();
+				std::unique_ptr<CFG> sourceCFG = CFG::buildCFG(f, funcBody, &TheContext, CFG::BuildOptions());
+				const SourceManager &SM = TheContext.getSourceManager();
+				for (const CFGBlock *block : *sourceCFG) {
+					std::optional<unsigned> minLine;
+    				std::optional<unsigned> maxLine;
+					unsigned startLine = 0, endLine = 0;
+					block->print(llvm::outs(), sourceCFG.get(), LangOptions(), false);
+
+					for (const auto &elem : *block) {
+						if (elem.getKind() == clang::CFGElement::Statement) {
+							const clang::Stmt *stmt = elem.castAs<clang::CFGStmt>().getStmt();
+							if (!stmt) continue;
+
+							clang::SourceLocation startLoc = stmt->getBeginLoc();
+							clang::SourceLocation endLoc = stmt->getEndLoc();
+
+							if (startLoc.isValid()) {
+								PresumedLoc PLoc = SM.getPresumedLoc(startLoc);
+								unsigned line = PLoc.getLine();
+								minLine = minLine ? std::min(*minLine, line) : line;
+							}
+							
+							if (endLoc.isValid()) {
+								PresumedLoc PLoc = SM.getPresumedLoc(endLoc);
+								unsigned line = PLoc.getLine();
+								maxLine = maxLine ? std::max(*maxLine, line) : line;
+							}
+						}
+					}
+
+					if (minLine && maxLine) {
+						llvm::outs() << "from line " << *minLine << " to line " << *maxLine << "\n";
+					}
+				}
 			}
 
 			return true;
@@ -56,7 +95,7 @@ class MyFrontendAction : public ASTFrontendAction {
 
 		std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI, StringRef file) override {
 			TheRewriter.setSourceMgr(CI.getSourceManager(), CI.getLangOpts());
-			return llvm::make_unique<MyASTConsumer>(CI.getASTContext(), TheRewriter);
+			return std::make_unique<MyASTConsumer>(CI.getASTContext(), TheRewriter);
 		}
 
 	private:
@@ -64,8 +103,13 @@ class MyFrontendAction : public ASTFrontendAction {
 };
 
 int main(int argc, const char **argv) {
-	CommonOptionsParser op(argc, argv, ToolingSampleCategory);
-	ClangTool Tool(op.getCompilations(), op.getSourcePathList());
+	auto op = clang::tooling::CommonOptionsParser::create(argc, argv, ToolingSampleCategory);
+	if (!op) {
+		// Handle the error, for example by printing the message to stderr
+		llvm::errs() << op.takeError();
+		return 1;
+	}
+	ClangTool Tool(op->getCompilations(), op->getSourcePathList());
 
 	// ClangTool::run accepts a FrontendActionFactory, which is then used to
 	// create new objects implementing the FrontendAction interface. Here we use

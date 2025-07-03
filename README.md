@@ -1,6 +1,8 @@
 # Source Level Control flow Graph
 
 * cd cfg-clang
-* make
+* mkdir build;
+* cd build;
+* cmake -DCMAKE_PREFIX_PATH=/llvm/build  ..;
 
-* ./tool tests/\<filename\>.c 
+* build/cfg-clang -p ./compile_commands.json {target_file}

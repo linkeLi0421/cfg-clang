@@ -2,6 +2,7 @@
 #define MAIN_H_
 #include <sstream>
 #include <string>
+#include <optional>
 #include "clang/Basic/LangOptions.h"
 #include "clang/AST/AST.h"
 #include "clang/AST/ASTConsumer.h"
