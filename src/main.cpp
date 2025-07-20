@@ -20,11 +20,21 @@ class MyASTVisitor : public RecursiveASTVisitor<MyASTVisitor> {
 					signature += paramType + " " + paramName;
 				}
 				signature += ")";
-				llvm::outs() << "Function signature: " << signature << "\n";
 
 				Stmt *funcBody = f->getBody();
 				std::unique_ptr<CFG> sourceCFG = CFG::buildCFG(f, funcBody, &TheContext, CFG::BuildOptions());
 				const SourceManager &SM = TheContext.getSourceManager();
+				SourceLocation fun_loc = f->getLocation();
+				if (fun_loc.isValid()) {
+					PresumedLoc PLoc = SM.getPresumedLoc(fun_loc);
+					if (strncmp(PLoc.getFilename(), "/usr", 4) == 0) {
+						// It starts with "/usr"
+						return false; // Skip functions not defined in /src
+					}
+					llvm::outs() << "Function signature: " << signature << "\n";
+					llvm::outs() << "Defined in file: " << PLoc.getFilename() << " at line " << PLoc.getLine() << "\n";
+				}
+
 				for (const CFGBlock *block : *sourceCFG) {
 					std::optional<unsigned> minLine;
     				std::optional<unsigned> maxLine;
